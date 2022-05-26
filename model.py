@@ -15,6 +15,23 @@ import os
 import random
 import math
 import time
+from typing import List, Optional, Tuple, Union
+
+import logging
+from typing import Optional
+
+import torch
+import torch.nn as nn
+
+from fairseq import utils
+from fairseq.models import register_model, register_model_architecture
+from fairseq.models.transformer import TransformerModel
+from fairseq.modules.transformer_sentence_encoder import init_bert_params
+
+from .hub_interface import BARTHubInterface
+
+logger = logging.getLogger(__name__)
+
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 torch.backends.cudnn.benchmark = True
@@ -28,390 +45,356 @@ def seed_everything(seed: int = 42):
     torch.backends.cudnn.deterministic = True  # type: ignore
     torch.backends.cudnn.benchmark = True  # type: ignore
 
-#%%인코더
 
-class Encoder(nn.Module):
-    def __init__(self, 
-                 input_dim, 
-                 hid_dim, 
-                 n_layers, 
-                 n_heads, 
-                 pf_dim,
-                 dropout, 
-                 device,
-                 max_length = 100):
-        super().__init__()
 
-        self.device = device
-        
-        self.prc_embedding = nn.Embedding(input_dim, hid_dim)
-        self.pos_embedding = nn.Embedding(max_length, hid_dim)
-        "price를 embedding space에 뿌려줌, position encoding을 해줌"
-        
-        self.layers = nn.ModuleList([EncoderLayer(hid_dim, 
-                                                  n_heads, 
-                                                  pf_dim,
-                                                  dropout, 
-                                                  device) 
-                                     for _ in range(n_layers)])
-        """
-        Attention is all you need 기본 적으로 논문에서 base는 6개의 Encoder Decoder사용
-        n_layers 를 내가 직접 설정해서 이 구조를 몇개를 가질 지를 결정하면 됨.
-        """
-        
-        self.dropout = nn.Dropout(dropout)
-        
-        self.scale = torch.sqrt(torch.FloatTensor([hid_dim])).to(device)
-        "논무에도 보면 스케일링 파트가 있습니다."
-        
-    def forward(self, src, src_mask):
-        
-        #src = [batch size, src len]
-        #src_mask = [batch size, 1, 1, src len]
-        
-        batch_size = src.shape[0]
-        src_len = src.shape[1]
-        
-        pos = torch.arange(0, src_len).unsqueeze(0).repeat(batch_size, 1).to(self.device)
-        "포지션"
-        
-        #pos = [batch size, src len]
-        
-        src = self.dropout((self.prc_embedding(src) * self.scale) + self.pos_embedding(pos))
-        "드랍 아웃을 임베딩된 가격의 스케일링된 값과 포지셔널 인코딩 값의 합에 적용 값이라 했지만 벡터임!"
-        
-        #src = [batch size, src len, hid dim]
-        
-        for layer in self.layers:
-            src = layer(src, src_mask)
-        "트랜스포머는 여러개의 Encoder Decoder를 지남 여기서는 모든 Encoder를 지나는 값을 뱉어내는 것"
-        #src = [batch size, src len, hid dim]
-        "반환은 Encoder의 Context Vector 나는 price의 representaion이므로 그냥 Hidden Representation이라 하겠음"
-        return src
-    
-class EncoderLayer(nn.Module):
-    def __init__(self, 
-                 hid_dim, 
-                 n_heads, 
-                 pf_dim,  
-                 dropout, 
-                 device):
-        super().__init__()
-        
-        self.self_attn_layer_norm = nn.LayerNorm(hid_dim)
-        self.ff_layer_norm = nn.LayerNorm(hid_dim)
-        "layer 정규화"
-        self.self_attention = MultiHeadAttentionLayer(hid_dim, n_heads, dropout, device)
-        "셀프 어텐션은 멀티헤드 어텐션으로"
-        self.positionwise_feedforward = PositionwiseFeedforwardLayer(hid_dim, 
-                                                                     pf_dim, 
-                                                                     dropout)
-        self.dropout = nn.Dropout(dropout)
-        
-    def forward(self, src, src_mask):
-        
-        #src = [batch size, src len, hid dim]
-        #src_mask = [batch size, 1, 1, src len] 
-                
-        #self attention
-        _src, _ = self.self_attention(src, src, src, src_mask)
-        "_src = 출력 , _ 는 attention"
-        
-        #dropout, residual connection and layer norm
-        src = self.self_attn_layer_norm(src + self.dropout(_src))
-        "어텐션된 값과 소스를 정규화"
-        
-        #src = [batch size, src len, hid dim]
-        
-        #positionwise feedforward
-        _src = self.positionwise_feedforward(src)
-        ""
-        
-        #dropout, residual and layer norm
-        src = self.ff_layer_norm(src + self.dropout(_src))
-        
-        #src = [batch size, src len, hid dim]
-        
-        return src
 
-#%% 멀티헤드어텐션
-class MultiHeadAttentionLayer(nn.Module):
-    def __init__(self, hid_dim, n_heads, dropout, device):
+
+@register_model("bart")
+class BARTModel(TransformerModel):
+    __jit_unused_properties__ = ["supported_targets"]
+
+    @classmethod
+    def hub_models(cls):
+        return {
+            "bart.base": "http://dl.fbaipublicfiles.com/fairseq/models/bart.base.tar.gz",
+            "bart.large": "http://dl.fbaipublicfiles.com/fairseq/models/bart.large.tar.gz",
+            "bart.large.mnli": "http://dl.fbaipublicfiles.com/fairseq/models/bart.large.mnli.tar.gz",
+            "bart.large.cnn": "http://dl.fbaipublicfiles.com/fairseq/models/bart.large.cnn.tar.gz",
+            "bart.large.xsum": "http://dl.fbaipublicfiles.com/fairseq/models/bart.large.xsum.tar.gz",
+        }
+
+    def __init__(self, args, encoder, decoder):
+        super().__init__(args, encoder, decoder)
+
+        # We follow BERT's random weight initialization
+        self.apply(init_bert_params)
+
+        self.classification_heads = nn.ModuleDict()
+        if hasattr(self.encoder, "dictionary"):
+            self.eos: int = self.encoder.dictionary.eos()
+
+    @staticmethod
+    def add_args(parser):
+        super(BARTModel, BARTModel).add_args(parser)
+        parser.add_argument(
+            "--pooler-dropout",
+            type=float,
+            metavar="D",
+            help="dropout probability in the masked_lm pooler layers",
+        )
+        parser.add_argument(
+            "--pooler-activation-fn",
+            choices=utils.get_available_activation_fns(),
+            help="activation function to use for pooler layer",
+        )
+        parser.add_argument(
+            "--spectral-norm-classification-head",
+            action="store_true",
+            help="Apply spectral normalization on the classification head",
+        )
+
+    @property
+    def supported_targets(self):
+        return {"self"}
+
+    def forward(
+        self,
+        src_tokens,
+        src_lengths,
+        prev_output_tokens,
+        features_only: bool = False,
+        classification_head_name: Optional[str] = None,
+        token_embeddings: Optional[torch.Tensor] = None,
+        return_all_hiddens: bool = True,
+        alignment_layer: Optional[int] = None,
+        alignment_heads: Optional[int] = None,
+    ):
+        if classification_head_name is not None:
+            features_only = True
+
+        encoder_out = self.encoder(
+            src_tokens,
+            src_lengths=src_lengths,
+            token_embeddings=token_embeddings,
+            return_all_hiddens=return_all_hiddens,
+        )
+        x, extra = self.decoder(
+            prev_output_tokens,
+            encoder_out=encoder_out,
+            features_only=features_only,
+            alignment_layer=alignment_layer,
+            alignment_heads=alignment_heads,
+            src_lengths=src_lengths,
+            return_all_hiddens=return_all_hiddens,
+        )
+        eos: int = self.eos
+        if classification_head_name is not None:
+            sentence_representation = x[src_tokens.eq(eos), :].view(
+                x.size(0), -1, x.size(-1)
+            )[:, -1, :]
+            for k, head in self.classification_heads.items():
+                # for torch script only supports iteration
+                if k == classification_head_name:
+                    x = head(sentence_representation)
+                    break
+        return x, extra
+
+    @classmethod
+
+    def register_classification_head(
+        self, name, num_classes=None, inner_dim=None, **kwargs
+    ):
+        """Register a classification head."""
+        logger.info("Registering classification head: {0}".format(name))
+        if name in self.classification_heads:
+            prev_num_classes = self.classification_heads[name].out_proj.out_features
+            prev_inner_dim = self.classification_heads[name].dense.out_features
+            if num_classes != prev_num_classes or inner_dim != prev_inner_dim:
+                logger.warning(
+                    're-registering head "{}" with num_classes {} (prev: {}) '
+                    "and inner_dim {} (prev: {})".format(
+                        name, num_classes, prev_num_classes, inner_dim, prev_inner_dim
+                    )
+                )
+        self.classification_heads[name] = BARTClassificationHead(
+            input_dim=self.args.encoder_embed_dim,
+            inner_dim=inner_dim or self.args.encoder_embed_dim,
+            num_classes=num_classes,
+            activation_fn=self.args.pooler_activation_fn,
+            pooler_dropout=self.args.pooler_dropout,
+            do_spectral_norm=getattr(
+                self.args, "spectral_norm_classification_head", False
+            ),
+        )
+
+    def upgrade_state_dict_named(self, state_dict, name):
+        super().upgrade_state_dict_named(state_dict, name)
+
+        prefix = name + "." if name != "" else ""
+        current_head_names = (
+            []
+            if not hasattr(self, "classification_heads")
+            else self.classification_heads.keys()
+        )
+
+        # Handle new classification heads present in the state dict.
+        keys_to_delete = []
+        for k in state_dict.keys():
+            if not k.startswith(prefix + "classification_heads."):
+                continue
+
+            head_name = k[len(prefix + "classification_heads.") :].split(".")[0]
+            num_classes = state_dict[
+                prefix + "classification_heads." + head_name + ".out_proj.weight"
+            ].size(0)
+            inner_dim = state_dict[
+                prefix + "classification_heads." + head_name + ".dense.weight"
+            ].size(0)
+
+            if getattr(self.args, "load_checkpoint_heads", False):
+                if head_name not in current_head_names:
+                    self.register_classification_head(head_name, num_classes, inner_dim)
+            else:
+                if head_name not in current_head_names:
+                    logger.warning(
+                        "deleting classification head ({}) from checkpoint "
+                        "not present in current model: {}".format(head_name, k)
+                    )
+                    keys_to_delete.append(k)
+                elif (
+                    num_classes
+                    != self.classification_heads[head_name].out_proj.out_features
+                    or inner_dim
+                    != self.classification_heads[head_name].dense.out_features
+                ):
+                    logger.warning(
+                        "deleting classification head ({}) from checkpoint "
+                        "with different dimensions than current model: {}".format(
+                            head_name, k
+                        )
+                    )
+                    keys_to_delete.append(k)
+        for k in keys_to_delete:
+            del state_dict[k]
+
+        def truncate_emb(key):
+            if key in state_dict:
+                state_dict[key] = state_dict[key][:-1, :]
+
+        # When finetuning on translation task, remove last row of
+        # embedding matrix that corresponds to mask_idx token.
+        loaded_dict_size = state_dict["encoder.embed_tokens.weight"].size(0)
+        if (
+            loaded_dict_size == len(self.encoder.dictionary) + 1
+            and "<mask>" not in self.encoder.dictionary
+        ):
+            truncate_emb("encoder.embed_tokens.weight")
+            truncate_emb("decoder.embed_tokens.weight")
+            truncate_emb("encoder.output_projection.weight")
+            truncate_emb("decoder.output_projection.weight")
+
+        # When continued pretraining on new set of languages for mbart,
+        # add extra lang embeddings at the end of embed_tokens.
+        # Note: newly added languages are assumed to have been added at the end.
+        if self.args.task == "multilingual_denoising" and loaded_dict_size < len(
+            self.encoder.dictionary
+        ):
+            logger.info(
+                "Adding extra language embeddings not found in pretrained model for "
+                "continued pretraining of MBART on new set of languages."
+            )
+            loaded_mask_token_embedding = state_dict["encoder.embed_tokens.weight"][
+                -1, :
+            ]
+
+            num_langids_to_add = len(self.encoder.dictionary) - loaded_dict_size
+            embed_dim = state_dict["encoder.embed_tokens.weight"].size(1)
+
+            new_lang_embed_to_add = torch.zeros(num_langids_to_add, embed_dim)
+            nn.init.normal_(new_lang_embed_to_add, mean=0, std=embed_dim**-0.5)
+            new_lang_embed_to_add = new_lang_embed_to_add.to(
+                dtype=state_dict["encoder.embed_tokens.weight"].dtype,
+            )
+
+            state_dict["encoder.embed_tokens.weight"] = torch.cat(
+                [
+                    state_dict["encoder.embed_tokens.weight"][
+                        : loaded_dict_size - 1, :
+                    ],
+                    new_lang_embed_to_add,
+                    loaded_mask_token_embedding.unsqueeze(0),
+                ]
+            )
+            state_dict["decoder.embed_tokens.weight"] = torch.cat(
+                [
+                    state_dict["decoder.embed_tokens.weight"][
+                        : loaded_dict_size - 1, :
+                    ],
+                    new_lang_embed_to_add,
+                    loaded_mask_token_embedding.unsqueeze(0),
+                ]
+            )
+
+        # Copy any newly-added classification heads into the state dict
+        # with their current weights.
+        if hasattr(self, "classification_heads"):
+            cur_state = self.classification_heads.state_dict()
+            for k, v in cur_state.items():
+                if prefix + "classification_heads." + k not in state_dict:
+                    logger.info("Overwriting " + prefix + "classification_heads." + k)
+                    state_dict[prefix + "classification_heads." + k] = v
+
+    def set_beam_size(self, beam):
+        """Set beam size for efficient beamable enc-dec attention."""
+        beamable = False
+        for layer in self.decoder.layers:
+            if layer.encoder_attn is not None:
+                if hasattr(layer.encoder_attn, "set_beam_size"):
+                    layer.encoder_attn.set_beam_size(beam)
+                    beamable = True
+        if beamable:
+            self.encoder.reorder_encoder_out = self.encoder._reorder_encoder_out
+
+
+class BARTClassificationHead(nn.Module):
+    """Head for sentence-level classification tasks."""
+
+    def __init__(
+        self,
+        input_dim,
+        inner_dim,
+        num_classes,
+        activation_fn,
+        pooler_dropout,
+        do_spectral_norm=False,
+    ):
         super().__init__()
-        
-        assert hid_dim % n_heads == 0
-        
-        self.hid_dim = hid_dim
-        self.n_heads = n_heads
-        self.head_dim = hid_dim // n_heads
-        
-        self.fc_q = nn.Linear(hid_dim, hid_dim)
-        self.fc_k = nn.Linear(hid_dim, hid_dim)
-        self.fc_v = nn.Linear(hid_dim, hid_dim)
-        
-        self.fc_o = nn.Linear(hid_dim, hid_dim)
-        
-        self.dropout = nn.Dropout(dropout)
-        
-        self.scale = torch.sqrt(torch.FloatTensor([self.head_dim])).to(device)
-        
-    def forward(self, query, key, value, mask = None):
-        
-        batch_size = query.shape[0]
-        
-        #query = [batch size, query len, hid dim]
-        #key = [batch size, key len, hid dim]
-        #value = [batch size, value len, hid dim]
-                
-        Q = self.fc_q(query)
-        K = self.fc_k(key)
-        V = self.fc_v(value)
-        
-        #Q = [batch size, query len, hid dim]
-        #K = [batch size, key len, hid dim]
-        #V = [batch size, value len, hid dim]
-                
-        Q = Q.view(batch_size, -1, self.n_heads, self.head_dim).permute(0, 2, 1, 3)
-        K = K.view(batch_size, -1, self.n_heads, self.head_dim).permute(0, 2, 1, 3)
-        V = V.view(batch_size, -1, self.n_heads, self.head_dim).permute(0, 2, 1, 3)
-        
-        #Q = [batch size, n heads, query len, head dim]
-        #K = [batch size, n heads, key len, head dim]
-        #V = [batch size, n heads, value len, head dim]
-                
-        energy = torch.matmul(Q, K.permute(0, 1, 3, 2)) / self.scale
-        
-        #energy = [batch size, n heads, query len, key len]
-        
-        if mask is not None:
-            energy = energy.masked_fill(mask == 0, -1e10)
-        
-        attention = torch.softmax(energy, dim = -1)
-                
-        #attention = [batch size, n heads, query len, key len]
-                
-        x = torch.matmul(self.dropout(attention), V)
-        
-        #x = [batch size, n heads, query len, head dim]
-        
-        x = x.permute(0, 2, 1, 3).contiguous()
-        
-        #x = [batch size, query len, n heads, head dim]
-        
-        x = x.view(batch_size, -1, self.hid_dim)
-        
-        #x = [batch size, query len, hid dim]
-        
-        x = self.fc_o(x)
-        
-        #x = [batch size, query len, hid dim]
-        
-        return x, attention
-    
-#%% 포지션와이즈피드포워드
-class PositionwiseFeedforwardLayer(nn.Module):
-    def __init__(self, hid_dim, pf_dim, dropout):
-        super().__init__()
-        
-        self.fc_1 = nn.Linear(hid_dim, pf_dim)
-        self.fc_2 = nn.Linear(pf_dim, hid_dim)
-        
-        self.dropout = nn.Dropout(dropout)
-        
-    def forward(self, x):
-        
-        #x = [batch size, seq len, hid dim]
-        
-        x = self.dropout(torch.relu(self.fc_1(x)))
-        
-        #x = [batch size, seq len, pf dim]
-        
-        x = self.fc_2(x)
-        
-        #x = [batch size, seq len, hid dim]
-        
+        self.dense = nn.Linear(input_dim, inner_dim)
+        self.activation_fn = utils.get_activation_fn(activation_fn)
+        self.dropout = nn.Dropout(p=pooler_dropout)
+        self.out_proj = nn.Linear(inner_dim, num_classes)
+
+        if do_spectral_norm:
+            self.out_proj = torch.nn.utils.spectral_norm(self.out_proj)
+
+    def forward(self, features, **kwargs):
+        x = features
+        x = self.dropout(x)
+        x = self.dense(x)
+        x = self.activation_fn(x)
+        x = self.dropout(x)
+        x = self.out_proj(x)
         return x
-    
-#%% 디코더
 
-class Decoder(nn.Module):
-    def __init__(self, 
-                 output_dim, 
-                 hid_dim, 
-                 n_layers, 
-                 n_heads, 
-                 pf_dim, 
-                 dropout, 
-                 device,
-                 max_length = 100):
-        super().__init__()
-        
-        self.device = device
-        
-        self.tok_embedding = nn.Embedding(output_dim, hid_dim)
-        self.pos_embedding = nn.Embedding(max_length, hid_dim)
-        
-        self.layers = nn.ModuleList([DecoderLayer(hid_dim, 
-                                                  n_heads, 
-                                                  pf_dim, 
-                                                  dropout, 
-                                                  device)
-                                     for _ in range(n_layers)])
-        
-        self.fc_out = nn.Linear(hid_dim, output_dim)
-        
-        self.dropout = nn.Dropout(dropout)
-        
-        self.scale = torch.sqrt(torch.FloatTensor([hid_dim])).to(device)
-        
-    def forward(self, trg, enc_src, trg_mask, src_mask):
-        
-        #trg = [batch size, trg len]
-        #enc_src = [batch size, src len, hid dim]
-        #trg_mask = [batch size, 1, trg len, trg len]
-        #src_mask = [batch size, 1, 1, src len]
-                
-        batch_size = trg.shape[0]
-        trg_len = trg.shape[1]
-        
-        pos = torch.arange(0, trg_len).unsqueeze(0).repeat(batch_size, 1).to(self.device)
-                            
-        #pos = [batch size, trg len]
-            
-        trg = self.dropout((self.tok_embedding(trg) * self.scale) + self.pos_embedding(pos))
-                
-        #trg = [batch size, trg len, hid dim]
-        
-        for layer in self.layers:
-            trg, attention = layer(trg, enc_src, trg_mask, src_mask)
-        
-        #trg = [batch size, trg len, hid dim]
-        #attention = [batch size, n heads, trg len, src len]
-        
-        output = self.fc_out(trg)
-        
-        #output = [batch size, trg len, output dim]
-            
-        return output, attention
-    
-class DecoderLayer(nn.Module):
-    def __init__(self, 
-                 hid_dim, 
-                 n_heads, 
-                 pf_dim, 
-                 dropout, 
-                 device):
-        super().__init__()
-        
-        self.self_attn_layer_norm = nn.LayerNorm(hid_dim)
-        self.enc_attn_layer_norm = nn.LayerNorm(hid_dim)
-        self.ff_layer_norm = nn.LayerNorm(hid_dim)
-        self.self_attention = MultiHeadAttentionLayer(hid_dim, n_heads, dropout, device)
-        self.encoder_attention = MultiHeadAttentionLayer(hid_dim, n_heads, dropout, device)
-        self.positionwise_feedforward = PositionwiseFeedforwardLayer(hid_dim, 
-                                                                     pf_dim, 
-                                                                     dropout)
-        self.dropout = nn.Dropout(dropout)
-        
-    def forward(self, trg, enc_src, trg_mask, src_mask):
-        
-        #trg = [batch size, trg len, hid dim]
-        #enc_src = [batch size, src len, hid dim]
-        #trg_mask = [batch size, 1, trg len, trg len]
-        #src_mask = [batch size, 1, 1, src len]
-        
-        #self attention
-        _trg, _ = self.self_attention(trg, trg, trg, trg_mask)
-        
-        #dropout, residual connection and layer norm
-        trg = self.self_attn_layer_norm(trg + self.dropout(_trg))
-            
-        #trg = [batch size, trg len, hid dim]
-            
-        #encoder attention
-        _trg, attention = self.encoder_attention(trg, enc_src, enc_src, src_mask)
-        
-        #dropout, residual connection and layer norm
-        trg = self.enc_attn_layer_norm(trg + self.dropout(_trg))
-                    
-        #trg = [batch size, trg len, hid dim]
-        
-        #positionwise feedforward
-        _trg = self.positionwise_feedforward(trg)
-        
-        #dropout, residual and layer norm
-        trg = self.ff_layer_norm(trg + self.dropout(_trg))
-        
-        #trg = [batch size, trg len, hid dim]
-        #attention = [batch size, n heads, trg len, src len]
-        
-        return trg, attention
-    
-#%% 시퀀스 투 시퀀스
 
-class Seq2Seq(nn.Module):
-    def __init__(self, 
-                 encoder, 
-                 decoder, 
-                 src_pad_idx, 
-                 trg_pad_idx, 
-                 device):
-        super().__init__()
-        
-        self.encoder = encoder
-        self.decoder = decoder
-        self.src_pad_idx = src_pad_idx
-        self.trg_pad_idx = trg_pad_idx
-        self.device = device
-        
-    def make_src_mask(self, src):
-        
-        #src = [batch size, src len]
-        
-        src_mask = (src != self.src_pad_idx).unsqueeze(1).unsqueeze(2)
+@register_model_architecture("bart", "bart_large")
 
-        #src_mask = [batch size, 1, 1, src len]
+def bart_large_architecture(args):
+    args.encoder_embed_path = getattr(args, "encoder_embed_path", None)
+    args.encoder_embed_dim = getattr(args, "encoder_embed_dim", 1024)
+    args.encoder_ffn_embed_dim = getattr(args, "encoder_ffn_embed_dim", 4 * 1024)
+    args.encoder_layers = getattr(args, "encoder_layers", 12)
+    args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 16)
+    args.encoder_normalize_before = getattr(args, "encoder_normalize_before", False)
+    args.encoder_learned_pos = getattr(args, "encoder_learned_pos", True)
+    args.decoder_embed_path = getattr(args, "decoder_embed_path", None)
+    args.decoder_embed_dim = getattr(args, "decoder_embed_dim", args.encoder_embed_dim)
+    args.decoder_ffn_embed_dim = getattr(
+        args, "decoder_ffn_embed_dim", args.encoder_ffn_embed_dim
+    )
+    args.decoder_layers = getattr(args, "decoder_layers", 12)
+    args.decoder_attention_heads = getattr(args, "decoder_attention_heads", 16)
+    args.decoder_normalize_before = getattr(args, "decoder_normalize_before", False)
+    args.decoder_learned_pos = getattr(args, "decoder_learned_pos", True)
+    args.attention_dropout = getattr(args, "attention_dropout", 0.0)
+    args.relu_dropout = getattr(args, "relu_dropout", 0.0)
+    args.dropout = getattr(args, "dropout", 0.1)
+    args.max_target_positions = getattr(args, "max_target_positions", 1024)
+    args.max_source_positions = getattr(args, "max_source_positions", 1024)
+    args.adaptive_softmax_cutoff = getattr(args, "adaptive_softmax_cutoff", None)
+    args.adaptive_softmax_dropout = getattr(args, "adaptive_softmax_dropout", 0)
+    args.share_decoder_input_output_embed = getattr(
+        args, "share_decoder_input_output_embed", True
+    )
+    args.share_all_embeddings = getattr(args, "share_all_embeddings", True)
 
-        return src_mask
-    
-    def make_trg_mask(self, trg):
-        
-        #trg = [batch size, trg len]
-        
-        trg_pad_mask = (trg != self.trg_pad_idx).unsqueeze(1).unsqueeze(2)
-        
-        #trg_pad_mask = [batch size, 1, 1, trg len]
-        
-        trg_len = trg.shape[1]
-        
-        trg_sub_mask = torch.tril(torch.ones((trg_len, trg_len), device = self.device)).bool()
-        
-        #trg_sub_mask = [trg len, trg len]
-            
-        trg_mask = trg_pad_mask & trg_sub_mask
-        
-        #trg_mask = [batch size, 1, trg len, trg len]
-        
-        return trg_mask
+    args.decoder_output_dim = getattr(
+        args, "decoder_output_dim", args.decoder_embed_dim
+    )
+    args.decoder_input_dim = getattr(args, "decoder_input_dim", args.decoder_embed_dim)
 
-    def forward(self, src, trg):
-        
-        #src = [batch size, src len]
-        #trg = [batch size, trg len]
-                
-        src_mask = self.make_src_mask(src)
-        trg_mask = self.make_trg_mask(trg)
-        
-        #src_mask = [batch size, 1, 1, src len]
-        #trg_mask = [batch size, 1, trg len, trg len]
-        
-        enc_src = self.encoder(src, src_mask)
-        
-        #enc_src = [batch size, src len, hid dim]
-                
-        output, attention = self.decoder(trg, enc_src, trg_mask, src_mask)
-        
-        #output = [batch size, trg len, output dim]
-        #attention = [batch size, n heads, trg len, src len]
-        
-        return output, attention
+    args.no_scale_embedding = getattr(args, "no_scale_embedding", True)
+    args.layernorm_embedding = getattr(args, "layernorm_embedding", True)
+
+    args.activation_fn = getattr(args, "activation_fn", "gelu")
+    args.pooler_activation_fn = getattr(args, "pooler_activation_fn", "tanh")
+    args.pooler_dropout = getattr(args, "pooler_dropout", 0.0)
+
+
+@register_model_architecture("bart", "bart_base")
+def bart_base_architecture(args):
+    args.encoder_embed_dim = getattr(args, "encoder_embed_dim", 768)
+    args.encoder_ffn_embed_dim = getattr(args, "encoder_ffn_embed_dim", 4 * 768)
+    args.encoder_layers = getattr(args, "encoder_layers", 6)
+    args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 12)
+    args.decoder_layers = getattr(args, "decoder_layers", 6)
+    args.decoder_attention_heads = getattr(args, "decoder_attention_heads", 12)
+    bart_large_architecture(args)
+
+
+@register_model_architecture("bart", "mbart_large")
+def mbart_large_architecture(args):
+    args.no_scale_embedding = getattr(args, "no_scale_embedding", False)
+    bart_large_architecture(args)
+
+
+@register_model_architecture("bart", "mbart_base")
+def mbart_base_architecture(args):
+    args.no_scale_embedding = getattr(args, "no_scale_embedding", False)
+    bart_base_architecture(args)
+
+
+@register_model_architecture("bart", "mbart_base_wmt20")
+def mbart_base_wmt20_architecture(args):
+    args.layernorm_embedding = getattr(args, "layernorm_embedding", False)
+    mbart_base_architecture(args)
