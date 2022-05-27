@@ -37,7 +37,7 @@ g.add_argument("--logging-interval", type=int, default=100, help="logging interv
 g.add_argument("--evaluate-interval", type=int, default=500, help="validation interval")
 g.add_argument("--masking-rate", type=float, default=0.3, help="pretrain parameter (only used with `pretrain` method)")
 
-data = pd.read_pickle('data.pkl')
+data = pd.read_pickle('validdata.pkl')
 
 class LinearWarmupLR(LambdaLR):
     """LR Scheduling function which is increase lr on warmup steps and decrease on normal steps"""
@@ -90,8 +90,9 @@ def main(args: argparse.Namespace):
         else {}
     )
     model = BartForConditionalGeneration(BartConfig.from_pretrained('default.json', **override_args)).to(device)
+    model.load_state_dict(torch.load('Pretrain_60_epoch.ckpt'))
     print(model.config)
-    epochs = args.epochs
+    epochs = 1
     learning_rate = 2e-4
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate) 
     total_steps = len(train_dataloader) * epochs
@@ -106,7 +107,7 @@ def main(args: argparse.Namespace):
         
         
         tqdm_dataset = tqdm(train_dataloader)
-        training = True
+        training = False
         for batch, batch_item in enumerate(tqdm_dataset):
             
             batch_loss, batch_acc= trainstep.pretrain_step(batch_item, epoch, batch, training, model, optimizer)
