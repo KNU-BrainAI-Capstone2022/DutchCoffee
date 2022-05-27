@@ -1,6 +1,6 @@
 ## To-Do List
 - Fine Tuning Test
-- Collect more datas and refine those
+- Collect more datas for pretrain and fine tuning
 - Multi GPU optimization
 - Cleaning codes ( Because of some pilot experiments, My codes are very dirty)
 
