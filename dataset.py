@@ -1,51 +1,84 @@
 from torch.utils.data import Dataset
+import pandas as pd
 
-class SummaryDataset(Dataset):
-    def __init__(self, dataframe, max_seq_len, tokenizer) -> None:
-        self.dataframe = dataframe # dataframe = train
-        self.bos_token = '<s>' #문장시작
-        self.eos_token = '</s>' #문장 끝
-        self.max_seq_len = max_seq_len #최대 시퀀스 길이
+class PretrainDataset(Dataset):
+    """Dataset for pretraining of BART with dialogue
+    Attributes:
+        tokenizer: tokenizer to tokenize dialogue and summary string
+        dialogue_max_seq_len: max sequence length of dialouge
+        masking_rate: rate of the number of masked token / sequence length
+        bos_token: bos token
+        eos_token: eos token
+        sep_token: turn seperation token to divide each utterances
+        mask_token_id: mask token id for text infilling
+        ids: id of each example
+        dialogues: dialogue of each example
+    """
+
+    def __init__(
+        self,
+        max_seq_len,
+        masking_rate: float = 0.3,
+    ):
+        """
+        Args:
+            paths: list of dataset paths (tsv or json)
+            tokenizer: tokenizer to tokenize dialogue and summary string
+            dialogue_max_seq_len: max sequence length of dialouge
+            masking_rate: rate of the number of masked token / sequence length
+        Returns:
+            original ids, dialogues, summaries and input ids and attention masks for dialogues and summaries
+        """
         
-        self.tokenizer = tokenizer #토크나이저
-
-    def __len__(self):
-        return self.dataframe.shape[0] #판다스 데이터 길이
-
-    def make_input_id_mask(self, tokens, index):
-        input_id = self.tokenizer.convert_tokens_to_ids(tokens)  # 해당 시퀀스의 ids들
-        attention_mask = [1] * len(input_id) 
-        if len(input_id) < self.max_seq_len:   
-            while len(input_id) < self.max_seq_len:  # 최대 길이보다 작을 때 패딩해주는거
-                input_id += [self.tokenizer.pad_token_id] 
-                attention_mask += [0]
-        else: # 최대 길이 보다 input_id가 길 경우 자르는거
-            input_id = input_id[:self.max_seq_len - 1] + [   
-                self.tokenizer.eos_token_id]
-            attention_mask = attention_mask[:self.max_seq_len]
-        return input_id, attention_mask # 패딩되거나 잘라서 나온 값들 반환
+        """
+        data = pd.DataFrame(columns=['Price'])
+        train2 = []
 
 
-    def __getitem__(self, index):
-        target_row = self.dataframe.iloc[index]  # 몇번째 pd의 데이터를 볼 것인가
-        context, summary = target_row['context'], target_row['summary'] # 목표는 컨텍스트랑 서머리
-        context_tokens = [self.bos_token] + \
-            self.tokenizer.tokenize(context) + [self.eos_token] #컨텍스트 토큰 <s>\context</s>
-        summary_tokens = [self.bos_token] + \
-            self.tokenizer.tokenize(summary) + [self.eos_token] #서머리 토큰 위와 동일
-        encoder_input_id, encoder_attention_mask = self.make_input_id_mask(
-            context_tokens, index) # 인코더 인풋 = 컨텍스트 토큰을 make_input_id_mask 나온 값 반환
-        decoder_input_id, decoder_attention_mask = self.make_input_id_mask(
-            summary_tokens, index) # 디코더 인풋 = 서머리 토큰을 위의 함수에 넣고 나온 값 반환
-        labels = self.tokenizer.convert_tokens_to_ids(
-            summary_tokens[1:(self.max_seq_len + 1)]) #정답인 요약문을 ids와
-        if len(labels) < self.max_seq_len: # 최대 길이보다 짧을 때
-            while len(labels) < self.max_seq_len: 
-                # for cross entropy loss masking
-                  labels += [-100] # 
+        for i in range(int((df2['Close'].size)/30 -1 )):
+            print(i)
+            temp = []
+            for k in range(60):
+                temp.append(df2['Close'][i*30+k])
+            train2.append(temp)
+        """
+        
+        super().__init__()
 
-        return {'input_ids': np.array(encoder_input_id, dtype=np.int64),
-                'attention_mask': np.array(encoder_attention_mask, dtype=np.float_),
-                'decoder_input_ids': np.array(decoder_input_id[:1024], dtype=np.int64),
-                'decoder_attention_mask': np.array(decoder_attention_mask[:1024], dtype=np.float_),
-                'labels': np.array(labels[:1024], dtype=np.int64)}
+        self.max_seq_len = max_seq_len
+        self.masking_rate = masking_rate
+        self.mask_token_id = tokenizer.mask_token_id
+        self.ids, self.dialogues = self.load_dataset(paths)
+
+    def load_dataset(self, paths: List[str]) -> Tuple[List[str], List[List[str]]]:
+        dataframe = pd.read_csv('./datas/2022-03-01_to_2022-03-03.csv')
+    
+
+
+    def __len__(self) -> int:
+        return len(self.ids)
+
+    def __getitem__(self, index: int) -> Dict[str, torch.Tensor]:
+        dialogue = self.dialogues[index]
+
+        # Permutate
+        random.shuffle(dialogue)
+
+        # Tokenize
+        decoder_input_ids = dialogue_input["input_ids"][0]
+        decoder_attention_mask = dialogue_input["attention_mask"][0]
+        encoder_input_ids = decoder_input_ids.clone()
+        encoder_attention_mask = decoder_attention_mask.clone()
+
+        # Masking
+        sequence_length = encoder_attention_mask.sum()
+        num_masking = int(sequence_length * self.masking_rate)
+        indices = torch.randperm(sequence_length)[:num_masking]
+        encoder_input_ids[indices] = self.mask_token_id
+
+        return {
+            "input_ids": encoder_input_ids,
+            "attention_mask": encoder_attention_mask,
+            "decoder_input_ids": decoder_input_ids,
+            "decoder_attention_mask": decoder_attention_mask,
+        }

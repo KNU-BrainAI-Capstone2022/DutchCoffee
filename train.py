@@ -1,16 +1,10 @@
 import argparse
 import os
 from glob import glob
-
-import pytorch_lightning as pl
-from pytorch_lightning.callbacks import LearningRateMonitor
-from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
+import dataset
 from torch.utils.data import DataLoader
 from transformers import BartConfig, BartForConditionalGeneration
 
-from summarizer.data import DialogueSummarizationDataset, PretrainDataset
-from summarizer.method import DefaultModule, R3FModule, RDropModule, ReinforceLearningModule
-from summarizer.utils import get_logger
 
 # fmt: off
 parser = argparse.ArgumentParser(prog="train", description="BART for price prediction")
@@ -37,19 +31,9 @@ def main(args: argparse.Namespace):
     os.makedirs(args.output_dir)
 
     if args.method == "pretrain":
-        train_dataset = PretrainDataset(
-            paths=glob(args.train_dataset_pattern),
-            dialogue_max_seq_len=args.max_seq_len,
-            masking_rate=args.masking_rate,
-        )
-        valid_dataset = PretrainDataset(
-            paths=glob(args.valid_dataset_pattern),
-            dialogue_max_seq_len=args.dialogue_max_seq_len,
-            masking_rate=args.masking_rate,
-        )
+        train_dataset = dataset.PretrainDataset(max_seq_len=args.max_seq_len)
 
     train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=args.batch_size)
-    valid_dataloader = DataLoader(valid_dataset, batch_size=args.valid_batch_size)
 
 
     override_args = (
@@ -62,7 +46,7 @@ def main(args: argparse.Namespace):
         if args.all_dropout
         else {}
     )
-    model = BartForConditionalGeneration(BartConfig.from_pretrained(args.model_config_path, **override_args))
+    model = BartForConditionalGeneration(BartConfig.from_pretrained(paths= 'default.json', **override_args))
     
 
     model_dir = os.path.join(args.output_dir, "models")

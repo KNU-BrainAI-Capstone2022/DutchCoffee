@@ -82,6 +82,7 @@ start_date = '2022-03-01'
 end_date = '2022-03-03'
 symbol = 'BTCUSDT'
 df2 = get_data(start_date, end_date, symbol)
+df2.to_csv(f'./datas/{start_date}_to_{end_date}.csv')
 data = pd.DataFrame(columns=['Price'])
 train2 = []
 
