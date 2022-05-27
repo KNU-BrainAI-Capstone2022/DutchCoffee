@@ -78,8 +78,11 @@ def get_data(start_date, end_date, symbol):
     #df['trades'] = df['trades'].astype(int)
     return df
 
-start_date = '2022-03-01'
-end_date = '2022-03-20'
+# 첫 번째 프리트레인
+#start_date = '2022-03-01'
+#end_date = '2022-03-20'
+start_date = '2022-03-21'
+end_date = '2022-03-25'
 symbol = 'BTCUSDT'
 df2 = get_data(start_date, end_date, symbol)
 
@@ -97,7 +100,7 @@ for i in range(int((df2['Close'].size)/30 -1 )):
 
 for i in range(len(train2)):
     newdata.loc[i,'Price'] = train2[i]
-newdata.to_pickle('data.pkl')
+newdata.to_pickle('validdata.pkl')
 
 
 
