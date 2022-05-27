@@ -79,21 +79,25 @@ def get_data(start_date, end_date, symbol):
     return df
 
 start_date = '2022-03-01'
-end_date = '2022-03-03'
+end_date = '2022-03-20'
 symbol = 'BTCUSDT'
 df2 = get_data(start_date, end_date, symbol)
-df2.to_csv(f'./datas/{start_date}_to_{end_date}.csv')
+
 data = pd.DataFrame(columns=['Price'])
 train2 = []
+newdata = pd.DataFrame(columns=['Price'])
 
 
 for i in range(int((df2['Close'].size)/30 -1 )):
     print(i)
     temp = []
     for k in range(60):
-        temp.append(df2['Close'][i*30+k])
+        temp.append(int(float(df2['Close'][i*30+k])))
     train2.append(temp)
 
+for i in range(len(train2)):
+    newdata.loc[i,'Price'] = train2[i]
+newdata.to_pickle('data.pkl')
 
 
 

@@ -1,5 +1,10 @@
 from torch.utils.data import Dataset
 import pandas as pd
+from typing import Dict, List, Optional, Tuple
+import torch
+import random
+import numpy  as np
+
 
 class PretrainDataset(Dataset):
     """Dataset for pretraining of BART with dialogue
@@ -15,11 +20,7 @@ class PretrainDataset(Dataset):
         dialogues: dialogue of each example
     """
 
-    def __init__(
-        self,
-        max_seq_len,
-        masking_rate: float = 0.3,
-    ):
+    def __init__( self,max_seq_len, dataframe,masking_rate: float = 0.15)->None:
         """
         Args:
             paths: list of dataset paths (tsv or json)
@@ -47,38 +48,38 @@ class PretrainDataset(Dataset):
 
         self.max_seq_len = max_seq_len
         self.masking_rate = masking_rate
-        self.mask_token_id = tokenizer.mask_token_id
-        self.ids, self.dialogues = self.load_dataset(paths)
-
-    def load_dataset(self, paths: List[str]) -> Tuple[List[str], List[List[str]]]:
-        dataframe = pd.read_csv('./datas/2022-03-01_to_2022-03-03.csv')
-    
-
+        self.mask_token_id = 6
+        self.bos_token = 2
+        self.eos_token = 3
+        self.dataframe = dataframe
 
     def __len__(self) -> int:
-        return len(self.ids)
+        return self.dataframe.shape[0]
 
     def __getitem__(self, index: int) -> Dict[str, torch.Tensor]:
-        dialogue = self.dialogues[index]
-
-        # Permutate
-        random.shuffle(dialogue)
-
-        # Tokenize
-        decoder_input_ids = dialogue_input["input_ids"][0]
-        decoder_attention_mask = dialogue_input["attention_mask"][0]
-        encoder_input_ids = decoder_input_ids.clone()
-        encoder_attention_mask = decoder_attention_mask.clone()
-
-        # Masking
-        sequence_length = encoder_attention_mask.sum()
-        num_masking = int(sequence_length * self.masking_rate)
-        indices = torch.randperm(sequence_length)[:num_masking]
+        #print(index) 
+        #target_row = self.dataframe[index]
+        input_ids = self.dataframe['Price'][index]
+        num_masking = int(self.max_seq_len * self.masking_rate)
+        
+        decoder_input_ids = torch.from_numpy(np.array([self.bos_token] + 
+                                                      input_ids +[self.eos_token],dtype=np.int64))
+        # bos + 인풋 + eos  size 62
+        decoder_attention_mask = torch.from_numpy(np.array([1] * len(decoder_input_ids),dtype=np.float_))
+        encoder_input_ids = torch.from_numpy(np.array(input_ids,dtype=np.int64))
+        indices = torch.randperm(self.max_seq_len)[:num_masking]
         encoder_input_ids[indices] = self.mask_token_id
-
+        encoder_input_ids = torch.cat([encoder_input_ids,
+                                       torch.from_numpy(np.array([self.eos_token]+[0],dtype=np.int64))])
+        # 마스킹된 인풋 + eos + pad size 62 마스킹률 15% ( 60*0.15 = 9)
+        encoder_attention_mask = decoder_attention_mask.clone()
+        labels = torch.from_numpy(np.array(input_ids+[self.eos_token]+[0], dtype=np.int64))
+        # 인풋 + eos + pad size 62
+        
         return {
             "input_ids": encoder_input_ids,
             "attention_mask": encoder_attention_mask,
             "decoder_input_ids": decoder_input_ids,
             "decoder_attention_mask": decoder_attention_mask,
+            'labels' : labels
         }

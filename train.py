@@ -4,34 +4,45 @@ from glob import glob
 import dataset
 from torch.utils.data import DataLoader
 from transformers import BartConfig, BartForConditionalGeneration
+import pandas as pd
+import trainstep
+import gc
+from tqdm import tqdm
+import torch
+from transformers import get_cosine_schedule_with_warmup
 
+os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+torch.backends.cudnn.benchmark = True
 # fmt: off
 parser = argparse.ArgumentParser(prog="train", description="BART for price prediction")
 
 g = parser.add_argument_group("Common Parameter")
 g.add_argument("--method", type=str, choices=["default", "pretrain"], default="default", help="training method")
 g.add_argument("--pretrained-ckpt-path", type=str, help="pretrained BART model path or name")
-g.add_argument("--batch-size", type=int, default=128, help="training batch size")
+g.add_argument("--batch-size", type=int, default=4, help="training batch size")
 g.add_argument("--valid-batch-size", type=int, default=256, help="validation batch size")
 g.add_argument("--epochs", type=int, default=10, help="the numnber of training epochs")
 g.add_argument("--max-learning-rate", type=float, default=2e-4, help="max learning rate")
 g.add_argument("--min-learning-rate", type=float, default=1e-5, help="min Learning rate")
 g.add_argument("--warmup-rate", type=float, default=0.05, help="warmup step rate")
-g.add_argument("--max-seq-len", type=int, default=256, help="dialogue max sequence length")
+g.add_argument("--max-seq-len", type=int, default=60, help="dialogue max sequence length")
 g.add_argument("--pred-max-seq-len", type=int, default=64, help="summary max sequence length")
 g.add_argument("--all-dropout", type=float, help="override all dropout")
 g.add_argument("--logging-interval", type=int, default=100, help="logging interval")
 g.add_argument("--evaluate-interval", type=int, default=500, help="validation interval")
 g.add_argument("--masking-rate", type=float, default=0.3, help="pretrain parameter (only used with `pretrain` method)")
 
+data = pd.read_pickle('data.pkl')
 
 def main(args: argparse.Namespace):
 
-    os.makedirs(args.output_dir)
+    #os.makedirs(args.output_dir)
 
     if args.method == "pretrain":
-        train_dataset = dataset.PretrainDataset(max_seq_len=args.max_seq_len)
+        train_dataset = dataset.PretrainDataset(dataframe = data ,max_seq_len=args.max_seq_len)
 
     train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=args.batch_size)
 
@@ -46,10 +57,43 @@ def main(args: argparse.Namespace):
         if args.all_dropout
         else {}
     )
-    model = BartForConditionalGeneration(BartConfig.from_pretrained(paths= 'default.json', **override_args))
+    model = BartForConditionalGeneration(BartConfig.from_pretrained('default.json', **override_args)).to(device)
+    print(model.config)
+    epochs = args.epochs
+    learning_rate = 3e-5
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate) 
+    num_train_steps = int(len(train_dataloader)*epochs)
+    num_warmup_steps = int(num_train_steps * 0.1)
+    scheduler = get_cosine_schedule_with_warmup(optimizer,num_warmup_steps=num_warmup_steps,
+                                                num_training_steps=num_train_steps)
+    for epoch in range(epochs): 
+        gc.collect()
+        total_train_loss, total_val_loss = 0, 0
+        total_train_acc, total_val_acc = 0, 0
+        
+        
+        tqdm_dataset = tqdm(train_dataloader)
+        training = True
+        for batch, batch_item in enumerate(tqdm_dataset):
+            
+            batch_loss, batch_acc= trainstep.pretrain_step(batch_item, epoch, batch, training, model, optimizer)
+            total_train_loss += batch_loss.item()
+            total_train_acc += batch_acc
+            
+            tqdm_dataset.set_postfix({
+                'Epoch': epoch + 1,
+                'Loss': '{:06f}'.format(batch_loss.item()),
+                'Total Loss' : '{:06f}'.format(total_train_loss/(batch+1)),
+                'Total ACC' : '{:06f}'.format(total_train_acc/(batch+1)),
+                'learning rate' : '{:06f}'.format(learning_rate)
+            })
+            
+        torch.save(model.state_dict(), 'Pretrain_{}_epoch.ckpt'.format(epoch + 1))
+        scheduler.step()
+            
     
 
-    model_dir = os.path.join(args.output_dir, "models")
+    #model_dir = os.path.join(args.output_dir, "models")
 
 
 
