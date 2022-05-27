@@ -32,11 +32,15 @@ torch.backends.cudnn.benchmark = True
 
 result = requests.get('https://api.binance.com/api/v3/ticker/price')
 js = result.json()
-symbols = [x['symbol']for x in js]
-symbols_usdt = [x for x in symbols if 'USDT' in x]
+#symbols = [x['symbol']for x in js]
+symbols = 'BTCUSDT'
+#symbols_usdt = [x for x in symbols if 'USDT' in x]
 
+#COLUMNS = ['Open_time', 'Open', 'High', 'Low', 'Close', 'Volume', 'Close_time', 'quote_av', 'trades', 
+#                   'tb_base_av', 'tb_quote_av', 'ignore']
 COLUMNS = ['Open_time', 'Open', 'High', 'Low', 'Close', 'Volume', 'Close_time', 'quote_av', 'trades', 
                    'tb_base_av', 'tb_quote_av', 'ignore']
+
 URL = 'https://api.binance.com/api/v3/klines'
 def get_data(start_date, end_date, symbol):
     data = []
@@ -67,26 +71,26 @@ def get_data(start_date, end_date, symbol):
     df = pd.DataFrame(data)
     df.columns = COLUMNS
     df['Open_time'] = df.apply(lambda x:dt.fromtimestamp(x['Open_time'] // 1000), axis=1)
-    df = df.drop(columns = ['Close_time', 'ignore'])
+    df = df.drop(columns = ['Open', 'High', 'Low','Volume', 'Close_time', 'quote_av', 'trades', 
+                       'tb_base_av', 'tb_quote_av', 'ignore'])
     df['Symbol'] = symbol
-    df.loc[:, 'Open':'tb_quote_av'] = df.loc[:, 'Open':'tb_quote_av'].astype(float)  # string to float
-    df['trades'] = df['trades'].astype(int)
+    #df.loc[:, 'Open':'tb_quote_av'] = df.loc[:, 'Open':'tb_quote_av'].astype(float)  # string to float
+    #df['trades'] = df['trades'].astype(int)
     return df
 
 start_date = '2022-03-01'
 end_date = '2022-03-03'
-symbol = symbols_usdt[0]
+symbol = 'BTCUSDT'
 df2 = get_data(start_date, end_date, symbol)
 data = pd.DataFrame(columns=['Price'])
 train2 = []
 
-for i in range(int(df2['Close'].size/2)):
-    data.loc[i] = df2['Close'][i]
 
-for i in range(data['Price'].size - 5 ):
+for i in range(int((df2['Close'].size)/30 -1 )):
+    print(i)
     temp = []
-    for k in range(5):
-        temp.append(data['Price'][i+k])
+    for k in range(60):
+        temp.append(df2['Close'][i*30+k])
     train2.append(temp)
 
 
