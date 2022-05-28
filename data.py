@@ -86,7 +86,6 @@ end_date = '2022-03-25'
 symbol = 'BTCUSDT'
 df2 = get_data(start_date, end_date, symbol)
 
-data = pd.DataFrame(columns=['Price'])
 train2 = []
 newdata = pd.DataFrame(columns=['Price'])
 
@@ -107,17 +106,49 @@ symbol = 'BTCUSDT'
 ftdf = get_data(start_date, end_date, symbol)
 
 ftpd = pd.DataFrame(columns=['Price','label'])
-fintune = []
-for i in range(int((df2['Close'].size)/30 -1 )):
+trinput = []
+trlabel = []
+for i in range(int((ftdf['Close'].size)/30 -1 )):
     print(i)
     temp = []
-    for k in range(60):
-        temp.append(int(float(df2['Close'][i*30+k])))
-    train2.append(temp)
+    temp2=[]
+    for k in range(30):
+        temp.append(int(float(ftdf['Close'][i*30+k])))
+        temp2.append(int(float(ftdf['Close'][(i+1)*30+k])))
+        
+    trinput.append(temp)
+    trlabel.append(temp2)
+    
 
 for i in range(len(train2)):
-    newdata.loc[i,'Price'] = train2[i]
-newdata.to_pickle('finetuning.pkl')
+    ftpd.loc[i,'Price'] = trinput[i]
+    ftpd.loc[i,'label'] = trlabel[i]
+ftpd.to_pickle('finetuning.pkl')
+
+start_date = '2022-03-01'
+end_date = '2022-03-05'
+symbol = 'BTCUSDT'
+ftdf = get_data(start_date, end_date, symbol)
+
+ftpd = pd.DataFrame(columns=['Price','label'])
+trinput = []
+trlabel = []
+for i in range(int((ftdf['Close'].size)/30 -1 )):
+    print(i)
+    temp = []
+    temp2=[]
+    for k in range(30):
+        temp.append(int(float(ftdf['Close'][i*30+k])))
+        temp2.append(int(float(ftdf['Close'][(i+1)*30+k])))
+        
+    trinput.append(temp)
+    trlabel.append(temp2)
+    
+
+for i in range(len(train2)):
+    ftpd.loc[i,'Price'] = trinput[i]
+    ftpd.loc[i,'label'] = trlabel[i]
+ftpd.to_pickle('test2.pkl')
 
 
 
