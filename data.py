@@ -100,7 +100,24 @@ for i in range(int((df2['Close'].size)/30 -1 )):
 
 for i in range(len(train2)):
     newdata.loc[i,'Price'] = train2[i]
-newdata.to_pickle('validdata.pkl')
+    
+start_date = '2022-03-21'
+end_date = '2022-03-25'
+symbol = 'BTCUSDT'
+ftdf = get_data(start_date, end_date, symbol)
+
+ftpd = pd.DataFrame(columns=['Price','label'])
+fintune = []
+for i in range(int((df2['Close'].size)/30 -1 )):
+    print(i)
+    temp = []
+    for k in range(60):
+        temp.append(int(float(df2['Close'][i*30+k])))
+    train2.append(temp)
+
+for i in range(len(train2)):
+    newdata.loc[i,'Price'] = train2[i]
+newdata.to_pickle('finetuning.pkl')
 
 
 

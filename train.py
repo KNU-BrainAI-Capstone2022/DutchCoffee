@@ -22,7 +22,7 @@ torch.backends.cudnn.benchmark = True
 parser = argparse.ArgumentParser(prog="train", description="BART for price prediction")
 
 g = parser.add_argument_group("Common Parameter")
-g.add_argument("--method", type=str, choices=["default", "pretrain"], default="default", help="training method")
+g.add_argument("--method", type=str, choices=["default", "pretrain","finetuning"], default="default", help="training method")
 g.add_argument("--pretrained-ckpt-path", type=str, help="pretrained BART model path or name")
 g.add_argument("--batch-size", type=int, default=4, help="training batch size")
 g.add_argument("--valid-batch-size", type=int, default=256, help="validation batch size")
@@ -37,7 +37,6 @@ g.add_argument("--logging-interval", type=int, default=100, help="logging interv
 g.add_argument("--evaluate-interval", type=int, default=500, help="validation interval")
 g.add_argument("--masking-rate", type=float, default=0.3, help="pretrain parameter (only used with `pretrain` method)")
 
-data = pd.read_pickle('data.pkl')
 
 class LinearWarmupLR(LambdaLR):
     """LR Scheduling function which is increase lr on warmup steps and decrease on normal steps"""
@@ -73,12 +72,18 @@ def main(args: argparse.Namespace):
 
     #os.makedirs(args.output_dir)
 
+    #if args.method == "pretrain":
+    #    train_dataset = dataset.PretrainDataset(dataframe = data ,max_seq_len=args.max_seq_len)
     if args.method == "pretrain":
-        train_dataset = dataset.PretrainDataset(dataframe = data ,max_seq_len=args.max_seq_len)
-
+        data = pd.read_pickle('data.pkl')
+    elif args.method == "finetuning":
+        data = pd.read_pickle('finetuning.pkl')
+        
+    train_step = {"pretrain": trainstep.pretrain_step,"finetuning": trainstep.finetuning_step}[args.method]
+    datasets = {"pretrain": dataset.PretrainDataset,"finetuning": dataset.FinetuningDataset}[args.method]
+    train_dataset = datasets(dataframe = data ,max_seq_len=args.max_seq_len)
     train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=args.batch_size)
-
-
+    
     override_args = (
         {
             "dropout": args.all_dropout,
@@ -91,6 +96,10 @@ def main(args: argparse.Namespace):
     )
     model = BartForConditionalGeneration(BartConfig.from_pretrained('default.json', **override_args)).to(device)
     print(model.config)
+    if args.method == "finetuning":
+        model.load_state_dict(torch.load('Pretrain_60_epoch.ckpt'))
+        
+    
     epochs = args.epochs
     learning_rate = 2e-4
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate) 
@@ -99,6 +108,8 @@ def main(args: argparse.Namespace):
             int(total_steps * 0.05),
             total_steps,
             1e-5 / 2e-4)
+    
+    
     for epoch in range(epochs): 
         gc.collect()
         total_train_loss, total_val_loss = 0, 0
@@ -109,7 +120,7 @@ def main(args: argparse.Namespace):
         training = True
         for batch, batch_item in enumerate(tqdm_dataset):
             
-            batch_loss, batch_acc= trainstep.pretrain_step(batch_item, epoch, batch, training, model, optimizer)
+            batch_loss, batch_acc= train_step(batch_item, epoch, batch, training, model, optimizer)
             total_train_loss += batch_loss.item()
             total_train_acc += batch_acc
             
@@ -121,7 +132,7 @@ def main(args: argparse.Namespace):
                 'learning rate' : '{:06f}'.format(optimizer.param_groups[0]['lr'])
             })
             
-        torch.save(model.state_dict(), 'Pretrain_{}_epoch.ckpt'.format(epoch + 1))
+        torch.save(model.state_dict(), f'{args.method}_{epoch+1}_epoch.ckpt')
         scheduler.step()
             
     

@@ -101,7 +101,7 @@ def finetuning_step(batch_item, epoch, batch, training, model, optimizer):
                            use_cache=False, return_dict=True)
         
         labels = batch_item["labels"][:,:-1].reshape(-1).to(device)
-        # 레이블 =  인풋 + eos + pad size 62 우리가 볼 건 61개
+        # 레이블 =  label + eos + pad size 62 우리가 볼 건 61개
         logits = output["logits"][:,:-1].reshape([labels.shape[0], -1])
         # 생성된 녀석 우리가 볼 건 앞의 61개
 
