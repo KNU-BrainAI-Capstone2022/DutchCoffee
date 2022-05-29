@@ -100,8 +100,8 @@ for i in range(int((df2['Close'].size)/30 -1 )):
 for i in range(len(train2)):
     newdata.loc[i,'Price'] = train2[i]
     
-start_date = '2022-03-21'
-end_date = '2022-03-25'
+start_date = '2022-03-06'
+end_date = '2022-03-20'
 symbol = 'BTCUSDT'
 ftdf = get_data(start_date, end_date, symbol)
 
@@ -125,7 +125,7 @@ for i in range(len(train2)):
     ftpd.loc[i,'label'] = trlabel[i]
 ftpd.to_pickle('finetuning.pkl')
 
-start_date = '2022-03-01'
+start_date = '2022-03-1'
 end_date = '2022-03-05'
 symbol = 'BTCUSDT'
 ftdf = get_data(start_date, end_date, symbol)
