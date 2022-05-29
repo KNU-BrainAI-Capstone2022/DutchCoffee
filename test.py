@@ -80,12 +80,15 @@ def main(args: argparse.Namespace):
     total_acc = 0
     for batch, batch_item in enumerate(tqdm_dataset):
         
-        res_ids = model.generate(input_ids = batch_item['input_ids'].to(device), max_length=61,
+        res_ids = model.generate(input_ids = batch_item['input_ids'].to(device),min_length=61, max_length=61,
                                  num_beams=5,eos_token_id=3)
-        accuracy = accuracy_function(batch_item['labels'][:,:].to(device),res_ids)
+        
+        accuracy = accuracy_function(batch_item['labels'][:,:-1].to(device),res_ids)
+        
         print(batch_item['input_ids'])
         print(res_ids)
-        print(batch_item['labels'])
+        print(batch_item['labels'][:,:-1])
+        print(batch_item['Minimum'])
         
         total_acc += accuracy
         

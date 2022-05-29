@@ -75,12 +75,14 @@ def main(args: argparse.Namespace):
     #if args.method == "pretrain":
     #    train_dataset = dataset.PretrainDataset(dataframe = data ,max_seq_len=args.max_seq_len)
     if args.method == "pretrain":
-        data = pd.read_pickle('data.pkl')
+        #data = pd.read_pickle('data.pkl')
+        data = pd.read_pickle('normpretrain.pkl')
     elif args.method == "finetuning":
         data = pd.read_pickle('finetuning.pkl')
         
     train_step = {"pretrain": trainstep.pretrain_step,"finetuning": trainstep.finetuning_step}[args.method]
-    datasets = {"pretrain": dataset.PretrainDataset,"finetuning": dataset.FinetuningDataset}[args.method]
+    datasets = {"pretrain": dataset.PretrainDataset,"finetuning": dataset.FinetuningDataset,
+                "normpretrain": dataset.NormPretrainDataset}[args.method]
     train_dataset = datasets(dataframe = data ,max_seq_len=args.max_seq_len)
     train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=args.batch_size)
     
@@ -97,7 +99,8 @@ def main(args: argparse.Namespace):
     model = BartForConditionalGeneration(BartConfig.from_pretrained('default.json', **override_args)).to(device)
     print(model.config)
     if args.method == "finetuning":
-        model.load_state_dict(torch.load('Pretrain_60_epoch.ckpt'))
+        model.load_state_dict(torch.load('pretrain_59_epoch.ckpt'))
+        #model.load_state_dict(torch.load('finetuning_45_epoch.ckpt'))
         
     
     epochs = args.epochs
