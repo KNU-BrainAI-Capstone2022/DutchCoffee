@@ -11,6 +11,7 @@ from tqdm import tqdm
 import torch
 from transformers import get_cosine_schedule_with_warmup
 from torch.optim.lr_scheduler import LambdaLR
+from sklearn.model_selection import train_test_split
 
 
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
@@ -76,15 +77,20 @@ def main(args: argparse.Namespace):
     #    train_dataset = dataset.PretrainDataset(dataframe = data ,max_seq_len=args.max_seq_len)
     if args.method == "pretrain":
         #data = pd.read_pickle('data.pkl')
-        data = pd.read_pickle('normpretrain.pkl')
+        data = pd.read_pickle('pretrain.pkl')
     elif args.method == "finetuning":
         data = pd.read_pickle('finetuning.pkl')
+        eval_data = pd.read_pickle('validata.pkl')
         
     train_step = {"pretrain": trainstep.pretrain_step,"finetuning": trainstep.finetuning_step}[args.method]
     datasets = {"pretrain": dataset.PretrainDataset,"finetuning": dataset.FinetuningDataset,
                 "normpretrain": dataset.NormPretrainDataset}[args.method]
+    
     train_dataset = datasets(dataframe = data ,max_seq_len=args.max_seq_len)
     train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=args.batch_size)
+    
+    eval_dataset = datasets(dataframe = eval_data ,max_seq_len=args.max_seq_len)
+    eval_dataloader = DataLoader(eval_dataset, shuffle=True, batch_size=args.batch_size)
     
     override_args = (
         {
@@ -99,18 +105,20 @@ def main(args: argparse.Namespace):
     model = BartForConditionalGeneration(BartConfig.from_pretrained('default.json', **override_args)).to(device)
     print(model.config)
     if args.method == "finetuning":
-        model.load_state_dict(torch.load('pretrain_59_epoch.ckpt'))
-        #model.load_state_dict(torch.load('finetuning_45_epoch.ckpt'))
+        #model.load_state_dict(torch.load('pretrain_90_epoch.ckpt'))
+        model.load_state_dict(torch.load('finetuning_67_epoch.ckpt'))
         
     
     epochs = args.epochs
     learning_rate = 2e-4
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate) 
+    """
     total_steps = len(train_dataloader) * epochs
     scheduler = LinearWarmupLR(optimizer,
             int(total_steps * 0.05),
             total_steps,
             1e-5 / 2e-4)
+    """
     
     
     for epoch in range(epochs): 
@@ -135,8 +143,24 @@ def main(args: argparse.Namespace):
                 'learning rate' : '{:06f}'.format(optimizer.param_groups[0]['lr'])
             })
             
+        training = False
+        tqdm_dataset = tqdm(eval_dataloader)
+        for batch, batch_item in enumerate(tqdm_dataset):
+            
+            batch_loss, batch_acc= train_step(batch_item, epoch, batch, training, model, optimizer)
+            total_val_loss += batch_loss.item()
+            total_val_acc += batch_acc
+            
+            tqdm_dataset.set_postfix({
+                'Epoch': epoch + 1,
+                'Loss': '{:06f}'.format(batch_loss.item()),
+                'Total Val Loss' : '{:06f}'.format(total_val_loss/(batch+1)),
+                'Total Val ACC' : '{:06f}'.format(total_val_acc/(batch+1))
+            })
+        
+            
         torch.save(model.state_dict(), f'{args.method}_{epoch+1}_epoch.ckpt')
-        scheduler.step()
+        #scheduler.step()
             
     
 

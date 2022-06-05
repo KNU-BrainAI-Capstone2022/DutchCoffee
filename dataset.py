@@ -59,7 +59,9 @@ class PretrainDataset(Dataset):
     def __getitem__(self, index: int) -> Dict[str, torch.Tensor]:
         #print(index) 
         #target_row = self.dataframe[index]
-        input_ids = self.dataframe['Price'][index]
+        input_ids = self.dataframe['Z'][index]
+        Mean = self.dataframe['Mean'][index]
+        Stddev = self.dataframe['Stddev'][index]
         num_masking = int(self.max_seq_len * self.masking_rate)
         
         decoder_input_ids = torch.from_numpy(np.array([self.bos_token] + 
@@ -81,7 +83,9 @@ class PretrainDataset(Dataset):
             "attention_mask": encoder_attention_mask,
             "decoder_input_ids": decoder_input_ids,
             "decoder_attention_mask": decoder_attention_mask,
-            'labels' : labels
+            'labels' : labels,
+            'Mean' : Mean,
+            'Stddev':Stddev
         }
     
 class NormPretrainDataset(Dataset):
@@ -146,9 +150,10 @@ class FinetuningDataset(Dataset):
     def __getitem__(self, index: int) -> Dict[str, torch.Tensor]:
         #print(index) 
         #target_row = self.dataframe[index]
-        input_ids = self.dataframe['Price'][index]
-        label = self.dataframe['label'][index]
-        minimum = self.dataframe['Minimum'][index]
+        input_ids = self.dataframe['Z'][index]
+        label = self.dataframe['ZL'][index]
+        Mean = self.dataframe['Mean'][index]
+        Stddev = self.dataframe['Stddev'][index]
         
         decoder_input_ids = torch.from_numpy(np.array([self.bos_token] + 
                                                       label +[self.eos_token],dtype=np.int64))
@@ -166,7 +171,8 @@ class FinetuningDataset(Dataset):
             "decoder_input_ids": decoder_input_ids,
             "decoder_attention_mask": decoder_attention_mask,
             'labels' : labels,
-            'Minimum' : minimum
+            'Mean' : Mean,
+            'Stddev' : Stddev
         }
     
 class NormFinetuningDataset(Dataset):

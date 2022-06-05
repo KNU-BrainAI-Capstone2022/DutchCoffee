@@ -1,5 +1,5 @@
 {
-    "vocab_size": 50000,
+    "vocab_size": 2500,
     "max_position_embeddings": 62,
     "encoder_layers": 6,
     "encoder_ffn_dim": 2048,

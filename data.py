@@ -81,8 +81,8 @@ def get_data(start_date, end_date, symbol):
 #%% 첫 번째 프리트레인
 #start_date = '2022-03-01'
 #end_date = '2022-03-20'
-start_date = '2022-03-21'
-end_date = '2022-03-25'
+start_date = '2022-01-01'
+end_date = '2022-05-15'
 symbol = 'BTCUSDT'
 df2 = get_data(start_date, end_date, symbol)
 
@@ -100,16 +100,18 @@ for i in range(int((df2['Close'].size)/30 -1 )):
 for i in range(len(train2)):
     newdata.loc[i,'Price'] = train2[i]
     
-#%% NormPretrain
-start_date = '2022-03-01'
-end_date = '2022-03-20'
-#start_date = '2022-03-21'
-#end_date = '2022-03-25'
+newdata.to_pickle('pretrain.pkl')
+#%% z 표준화
+#%% 첫 번째 프리트레인
+#start_date = '2022-03-01'
+#end_date = '2022-03-20'
+start_date = '2021-05-15'
+end_date = '2022-05-15'
 symbol = 'BTCUSDT'
 df2 = get_data(start_date, end_date, symbol)
 
 train2 = []
-newdata = pd.DataFrame(columns=['Price'])
+newdata = pd.DataFrame(columns=['Price','Mean','Stddev','Z'])
 
 
 for i in range(int((df2['Close'].size)/30 -1 )):
@@ -117,43 +119,131 @@ for i in range(int((df2['Close'].size)/30 -1 )):
     temp = []
     for k in range(60):
         temp.append(int(float(df2['Close'][i*30+k])))
-    minimum = min(temp)
-    for l in range(len(temp)):
-        temp[l] = temp[l] -minimum +100
     train2.append(temp)
 
 for i in range(len(train2)):
     newdata.loc[i,'Price'] = train2[i]
+    
+meanlist = []
+for i in range(len(newdata['Price'])):
+    mean = 0
+    for j in newdata['Price'][i]:
+        mean +=j
+    mean = mean/len(newdata['Price'][0])
+    newdata.loc[i,'Mean'] = mean
+    z = []
+    stddev = 0
+    for j in newdata['Price'][i]:
+        stddev += (j-mean)**2
+    stddev = stddev/len(newdata['Price'][0])
+    newdata.loc[i,'Stddev'] = stddev
+    for j in newdata['Price'][i]:
+        z.append(int((round((j-mean)/stddev,3))*1000+1000))
+    newdata.loc[i,'Z'] = z
+    
+start_date = '2021-03-15'
+end_date = '2022-05-14'
+symbol = 'BTCUSDT'
+df2 = get_data(start_date, end_date, symbol)
 
-newdata.to_pickle('normpretrain.pkl')
+train2 = []
+newdata = pd.DataFrame(columns=['Price','Mean','Stddev','Z'])
+
+
+for i in range(int((df2['Close'].size)/30 -1 )):
+    print(i)
+    temp = []
+    for k in range(60):
+        temp.append(int(float(df2['Close'][i*30+k])))
+    train2.append(temp)
+
+for i in range(len(train2)):
+    newdata.loc[i,'Price'] = train2[i]
+    
+meanlist = []
+for i in range(len(newdata['Price'])):
+    mean = 0
+    for j in newdata['Price'][i]:
+        mean +=j
+    mean = mean/len(newdata['Price'][0])
+    newdata.loc[i,'Mean'] = mean
+    z = []
+    stddev = 0
+    for j in newdata['Price'][i]:
+        stddev += (j-mean)**2
+    stddev = stddev/len(newdata['Price'][0])
+    newdata.loc[i,'Stddev'] = stddev
+    for j in newdata['Price'][i]:
+        z.append(int((round((j-mean)/stddev,3))*1000+1000))
+    newdata.loc[i,'Z'] = z    
+    
+newdata.to_pickle('pretrainvalid.pkl')
+  
     
 #%% Finetuning 용 데이터 1~60을 주고 61~120을 예측 다음 데이터는 31~90을 주고 91~150을 예측
-start_date = '2022-03-06'
-end_date = '2022-03-10'
+start_date = '2021-06-12'
+end_date = '2022-02-01'
+
+start_date = '2022-02-02'
+end_date = '2022-03-02'
 symbol = 'BTCUSDT'
 ftdf = get_data(start_date, end_date, symbol)
 
-ftpd = pd.DataFrame(columns=['Price','label'])
+ftpd = pd.DataFrame(columns=['Price','label','Mean','Stddev','Z','ZL'])
 trinput = []
 trlabel = []
-for i in range(int((ftdf['Close'].size)/30 -4 )):
+for i in range(int((ftdf['Close'].size)/10 -24 )):
     print(i)
     temp = []
     temp2=[]
     for k in range(60):
-        temp.append(int(float(ftdf['Close'][i*30+k])))
-        temp2.append(int(float(ftdf['Close'][i*30+k+60])))
+        temp.append(int(float(ftdf['Close'][i*10+k])))
+        temp2.append(int(float(ftdf['Close'][i*10+k+60])))
     minimum1 = min(temp)
     minimum2 = min(temp2)
     trinput.append(temp)
     trlabel.append(temp2)
-    
 
 for i in range(len(trinput)):
     ftpd.loc[i,'Price'] = trinput[i]
     ftpd.loc[i,'label'] = trlabel[i]
+
+meanlist = []
+for i in range(len(ftpd['Price'])):
+    mean = 0
+    for j in ftpd['Price'][i]:
+        mean +=j
+    mean = mean/len(ftpd['Price'][0])
+    ftpd.loc[i,'Mean'] = mean
+    z = []
+    zl = []
+    stddev = 0
+    for j in ftpd['Price'][i]:
+        stddev += (j-mean)**2
+    stddev = stddev/len(ftpd['Price'][0])
+    ftpd.loc[i,'Stddev'] = stddev
+    for j in ftpd['Price'][i]:
+        if int((round((j-mean)/stddev,3))*1000+1000) > 2000:
+            z.append(2000)
+        elif int((round((j-mean)/stddev,3))*1000+1000) < 50:
+            z.append(50)
+        else : z.append(int((round((j-mean)/stddev,3))*1000+1000))
+    for j in ftpd['label'][i]:
+        if int((round((j-mean)/stddev,3))*1000+1000) > 2000:
+            zl.append(2000)
+        elif int((round((j-mean)/stddev,3))*1000+1000) < 50:
+            zl.append(50)
+        else : zl.append(int((round((j-mean)/stddev,3))*1000+1000))
+
+    
+    ftpd.loc[i,'Z'] = z
+    ftpd.loc[i,'ZL'] = zl
+    
 ftpd.to_pickle('finetuning.pkl')
+ftpd.to_pickle('validata.pkl')
+
 ftpd.to_pickle('test2.pkl')
+    
 
 #%% Norm Finetuningdata
 start_date = '2022-03-01'

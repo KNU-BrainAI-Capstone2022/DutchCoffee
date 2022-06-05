@@ -53,11 +53,11 @@ def pretrain_step(batch_item, epoch, batch, training, model, optimizer):
 
         loss = F.cross_entropy(logits, labels,ignore_index=0)
         # 이거 logits이 들어가서 안에서 소프트맥스 알아서 됨.
-        print(f'inputs are {batch_item["input_ids"]}')
+        print(f'inputs are {batch_item["input_ids"][0:4]}')
         # 마스킹 된 인풋 데이터가 뭔지 표시
-        print(f'pred are {torch.argmax(F.softmax(logits),dim=1)}')
+        print(f'pred are {torch.argmax(F.softmax(logits[0:244]),dim=1)}')
         # 소프트맥스 된 실제 결과 어떤 녀석인지 표시
-        print(f'labels are {labels}')
+        print(f'labels are {labels[0:244]}')
         # 레이블이 뭔지 표시
         accuracy = torchmetrics.functional.accuracy(logits, labels,ignore_index=0)
         
@@ -107,11 +107,11 @@ def finetuning_step(batch_item, epoch, batch, training, model, optimizer):
 
         loss = F.cross_entropy(logits, labels,ignore_index=0)
         # 이거 logits이 들어가서 안에서 소프트맥스 알아서 됨.
-        print(f'inputs are {batch_item["input_ids"]}')
+        #print(f'inputs are {batch_item["input_ids"]}')
         # 마스킹 된 인풋 데이터가 뭔지 표시
-        print(f'pred are {torch.argmax(F.softmax(logits),dim=1)}')
+        #print(f'pred are {torch.argmax(F.softmax(logits),dim=1)}')
         # 소프트맥스 된 실제 결과 어떤 녀석인지 표시
-        print(f'labels are {labels}')
+        #print(f'labels are {labels}')
         # 레이블이 뭔지 표시
         accuracy = torchmetrics.functional.accuracy(logits, labels,ignore_index=0)
         
@@ -120,7 +120,7 @@ def finetuning_step(batch_item, epoch, batch, training, model, optimizer):
 
         return loss, accuracy
     else:
-        print('validation step')
+        #print('validation step')
         model.eval()
         with torch.no_grad():
             output = model(input_ids = batch_item['input_ids'].to(device),
