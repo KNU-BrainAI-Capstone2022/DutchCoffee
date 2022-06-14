@@ -110,7 +110,7 @@ for i in range(len(newdata['Price'])):
     newdata.loc[i,'Z'] = z
     newdata.loc[i,'ZL'] = zl
     
-newdata.to_pickle('pretrainvalid.pkl')
+newdata.to_pickle('traindata.pkl')
   
     
 #%% Finetuning 용 데이터 1~60을 주고 61~120을 예측 다음 데이터는 31~90을 주고 91~150을 예측

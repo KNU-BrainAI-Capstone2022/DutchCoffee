@@ -32,108 +32,25 @@ def accuracy_function(real, pred):
 
 
 
-def pretrain_step(batch_item, epoch, batch, training, model, optimizer):
+def train_step(batch_item, epoch, batch, training, model, optimizer):
 
     if training is True:
         model.train()
-        model.model.encoder.config.gradient_checkpointing = True
-        model.model.decoder.config.gradient_checkpointing = True
         optimizer.zero_grad()
+        loss_fn = torch.nn.MSELoss()
+        #print(batch_item['inputs'])
         with torch.cuda.amp.autocast():
-            output = model(input_ids = batch_item['input_ids'].to(device),
-                          attention_mask = batch_item['attention_mask'].to(device),
-                          decoder_input_ids = batch_item['decoder_input_ids'].to(device),
-                          decoder_attention_mask = batch_item['decoder_attention_mask'].to(device),
-                           use_cache=False, return_dict=True)
-        
-        labels = batch_item["labels"][:,:-1].reshape(-1).to(device)
-        # 레이블 =  인풋 + eos + pad size 62 우리가 볼 건 61개
-        logits = output["logits"][:,:-1].reshape([labels.shape[0], -1])
-        # 생성된 녀석 우리가 볼 건 앞의 61개
-
-        loss = F.cross_entropy(logits, labels,ignore_index=0)
-        # 이거 logits이 들어가서 안에서 소프트맥스 알아서 됨.
-        print(f'inputs are {batch_item["input_ids"][0:4]}')
-        # 마스킹 된 인풋 데이터가 뭔지 표시
-        print(f'pred are {torch.argmax(F.softmax(logits[0:244]),dim=1)}')
-        # 소프트맥스 된 실제 결과 어떤 녀석인지 표시
-        print(f'labels are {labels[0:244]}')
-        # 레이블이 뭔지 표시
-        accuracy = torchmetrics.functional.accuracy(logits, labels,ignore_index=0)
+            output = model(batch_item['inputs'].to(device))
+            
+        loss = loss_fn(output, batch_item['labels'][0:batch_item.size].to(device))
+        accuracy = torchmetrics.functional.accuracy(output,batch_item['labels'][0:batch_item.size].to(device))
         
         loss.backward()
         optimizer.step()
 
         return loss, accuracy
     else:
-        print('validation step')
         model.eval()
-        with torch.no_grad():
-            output = model(input_ids = batch_item['input_ids'].to(device),
-                          attention_mask = batch_item['attention_mask'].to(device),
-                          decoder_input_ids = batch_item['decoder_input_ids'].to(device),
-                          decoder_attention_mask = batch_item['decoder_attention_mask'].to(device),
-                           use_cache=False, return_dict=True)
-            
-        labels = batch_item["labels"][:,:-1].reshape(-1).to(device)
-        logits = output["logits"][:,:-1].reshape([labels.shape[0], -1])
-            
-        loss = F.cross_entropy(logits, labels,ignore_index=0)
-        accuracy = torchmetrics.functional.accuracy(logits, labels,ignore_index=0)
-        
-
-        return loss, accuracy
-    
-    
-
-def finetuning_step(batch_item, epoch, batch, training, model, optimizer):
-
-    if training is True:
-        model.train()
-        model.model.encoder.config.gradient_checkpointing = True
-        model.model.decoder.config.gradient_checkpointing = True
-        optimizer.zero_grad()
-        with torch.cuda.amp.autocast():
-            output = model(input_ids = batch_item['input_ids'].to(device),
-                          attention_mask = batch_item['attention_mask'].to(device),
-                          decoder_input_ids = batch_item['decoder_input_ids'].to(device),
-                          decoder_attention_mask = batch_item['decoder_attention_mask'].to(device),
-                           use_cache=False, return_dict=True)
-        
-        labels = batch_item["labels"][:,:-1].reshape(-1).to(device)
-        # 레이블 =  label + eos + pad size 62 우리가 볼 건 61개
-        logits = output["logits"][:,:-1].reshape([labels.shape[0], -1])
-        # 생성된 녀석 우리가 볼 건 앞의 61개
-
-        loss = F.cross_entropy(logits, labels,ignore_index=0)
-        # 이거 logits이 들어가서 안에서 소프트맥스 알아서 됨.
-        #print(f'inputs are {batch_item["input_ids"]}')
-        # 마스킹 된 인풋 데이터가 뭔지 표시
-        #print(f'pred are {torch.argmax(F.softmax(logits),dim=1)}')
-        # 소프트맥스 된 실제 결과 어떤 녀석인지 표시
-        #print(f'labels are {labels}')
-        # 레이블이 뭔지 표시
-        accuracy = torchmetrics.functional.accuracy(logits, labels,ignore_index=0)
-        
-        loss.backward()
-        optimizer.step()
-
-        return loss, accuracy
-    else:
-        #print('validation step')
-        model.eval()
-        with torch.no_grad():
-            output = model(input_ids = batch_item['input_ids'].to(device),
-                          attention_mask = batch_item['attention_mask'].to(device),
-                          decoder_input_ids = batch_item['decoder_input_ids'].to(device),
-                          decoder_attention_mask = batch_item['decoder_attention_mask'].to(device),
-                           use_cache=False, return_dict=True)
-            
-        labels = batch_item["labels"][:,:-1].reshape(-1).to(device)
-        logits = output["logits"][:,:-1].reshape([labels.shape[0], -1])
-            
-        loss = F.cross_entropy(logits, labels,ignore_index=0)
-        accuracy = torchmetrics.functional.accuracy(logits, labels,ignore_index=0)
-        
+        #with torch.no_grad():
 
         return loss, accuracy
