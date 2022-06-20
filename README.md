@@ -1,18 +1,11 @@
 ## To-Do List
-- Fine Tuning Test
-- Collect more datas for pretrain and fine tuning
-- Multi GPU optimization
-- Cleaning codes ( Because of some pilot experiments, My codes are very dirty)
-
+- 급하게 실험하고, 시험기간 겹쳐서 코드가 좀 지저분하고 문제가 있을 수 있음. 즉석에서 이리저리 썼던거라 수정 예정
+- 
 ## Concepts
 
-![BARTpretrain](https://github.com/KNU-BrainAI-Capstone2022/DutchCoffee/blob/main/images/BARTpretrain.PNG)   
-BART pretrain method
-![WordEmbed](https://github.com/KNU-BrainAI-Capstone2022/DutchCoffee/blob/main/images/WordEmbed.PNG)   
-Word Embedding
-![Concept](https://github.com/KNU-BrainAI-Capstone2022/DutchCoffee/blob/main/images/Concept.PNG)   
-Embedding for my project
-![Concpet2](https://github.com/KNU-BrainAI-Capstone2022/DutchCoffee/blob/main/images/Concept2.PNG)   
-Pretrain -> Finetuning
+시계열 데이터인 주가 데이터 ( 비트코인 가격 ) 데이터를 학습 시켜 예측을 하고 이 값을 통해 알고리즘 매매를 실행해 보는 것.
 
-
+## Done
+- 백테스팅 특정 구간 ( n년 m월 k일 ~ nn년 mm월 kk일 까지의 1분 단위의 100타임의 데이터 )에 대해서 알고리즘 매매를 테스트
+- LSTM 모델을 21년 06월 01일 부터 22년 01월 01일 까지의 데이터를 통해 학습
+- 검증은 22년 01월 02일 부터 22년 02월 01일 까지 데이터를 통해 함( validation)
