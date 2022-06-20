@@ -29,13 +29,14 @@ class Dataset(Dataset):
         inputs = self.dataframe['Z'][index]
         Mean = self.dataframe['Mean'][index]
         Stddev = self.dataframe['Stddev'][index]
-        labels = self.dataframe['ZL'][index]
+        labels = torch.tensor(self.dataframe['ZL'][index], dtype=torch.float16)
         original_input = self.dataframe['Price'][index]
         original_label = self.dataframe['Label'][index]
         
         return {
-            "inputs": torch.Tensor(inputs),
-            'labels' : torch.Tensor(labels),
+            "inputs": torch.tensor(inputs),
+            'label' : labels[0],
+            'label2' : labels[1],
             "original_input": original_input,
             "original label": original_label,
             'Mean' : Mean,

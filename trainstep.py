@@ -33,24 +33,63 @@ def accuracy_function(real, pred):
 
 
 def train_step(batch_item, epoch, batch, training, model, optimizer):
-
+    
+    loss_fn = nn.MSELoss()    
     if training is True:
         model.train()
         optimizer.zero_grad()
-        loss_fn = torch.nn.MSELoss()
-        #print(batch_item['inputs'])
+        label = batch_item['label'].to(device)
+        #label2 = batch_item['label2'].to(device)
+        input_seq = batch_item['inputs'].to(device)
+        
+        #print(label)
         with torch.cuda.amp.autocast():
-            output = model(batch_item['inputs'].to(device))
+            output = model(input_seq)
             
-        loss = loss_fn(output, batch_item['labels'][0:batch_item.size].to(device))
-        accuracy = torchmetrics.functional.accuracy(output,batch_item['labels'][0:batch_item.size].to(device))
+          
+
+        loss = loss_fn(output, label)
         
         loss.backward()
         optimizer.step()
 
-        return loss, accuracy
+        return loss
     else:
         model.eval()
-        #with torch.no_grad():
+        label = batch_item['label'].to(device)
+        with torch.no_grad():
+            output = model(batch_item['inputs'].to(device))
+        loss = loss_fn(output, label)
 
-        return loss, accuracy
+        return loss
+    
+def pretrain_step(batch_item, epoch, batch, training, model, optimizer):
+    
+    loss_fn = nn.CrossEntropyLoss()
+    if training is True:
+        model.train()
+        optimizer.zero_grad()
+        label = batch_item['label'].to(device)
+        #label2 = batch_item['label2'].to(device)
+        input_seq = batch_item['inputs'].to(device)
+        
+        #print(label)
+        with torch.cuda.amp.autocast():
+            output = model(input_seq)
+
+        loss = loss_fn(output, input_seq) #+ loss_fn(secondoutput,label2)
+        
+        loss.backward()
+        optimizer.step()
+
+        return loss
+    else:
+        model.eval()
+        label = batch_item['label'].to(device)
+        input_seq = batch_item['inputs'].to(device)
+        with torch.no_grad():
+            output = model(input_seq)
+        loss = loss_fn(output, input_seq) #+ loss_fn(secondoutput,label2)
+
+        return loss
+    
